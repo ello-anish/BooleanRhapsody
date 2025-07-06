@@ -13,6 +13,7 @@ The core of the application is a Java Swing window that embeds a JavaFX WebView 
     * Calculate definite integrals and visualize the area under the curve.
     * Find and display intersection points between any two functions.
     * Identify and plot local maxima, minima, and inflection points.
+    * Clear analysis overlays by re-clicking the analysis buttons.
 * **Dynamic UI:** A smooth and responsive interface built with React and styled with Tailwind CSS.
 * **Desktop Integration:**
     * Save and export your graph and workspace directly to your computer.
@@ -53,10 +54,10 @@ This project consists of two separate parts that work together. You must first b
     ```
     This command will create a `dist` folder inside `my-calculator`. This folder contains the complete, static website for the calculator.
 
-### Part 2: Run the Java Browser (`DEMO1`)
+### Part 2: Run the Java Browser (`java-desktop-app`)
 
-1.  **Open the Java project:** Open the `DEMO1` folder in your favorite Java IDE (like IntelliJ, Eclipse, or VS Code with Java extensions).
-2.  **Verify the file path:** Open the `SwingBrowser.java` file. Find the `APP_INDEX_PATH` variable and make sure it points to the `index.html` file that was just created in the previous step. The path should look like this (adjusted for your username):
+1.  **Open the Java project:** Open the `java-desktop-app` (or `DEMO1`) folder in your favorite Java IDE (like IntelliJ, Eclipse, or VS Code with Java extensions).
+2.  **Verify the file path:** Open the `SwingBrowser.java` file. Find the `APP_INDEX_PATH` variable and make sure it points to the `index.html` file that was just created in the previous step. The path should look like this (adjusted for your username and folder structure):
     ```java
     private static final String APP_INDEX_PATH = "D:/BooleanRhapsody/my-calculator/dist/index.html";
     ```
@@ -68,5 +69,5 @@ The repository is organized as a monorepo with two main packages:
 
 ```
 /
-├── DEMO1/            # The Java Swing/JavaFX desktop application
-└── my-calculator/    # The React.js graphing calculator UI
+├── java-desktop-app/   # The Java Swing/JavaFX desktop application
+└── my-calculator/      # The React.js graphing calculator UI
