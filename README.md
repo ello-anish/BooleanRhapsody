@@ -2,7 +2,7 @@
 
 ## 🚀 Project Description
 
-Boolean Rhapsody is a modern, feature-rich graphing calculator built with a unique architecture. It combines a robust Java desktop application front-end with a dynamic and interactive user interface powered by React.
+This project shows a modern, feature-rich graphing calculator built with a unique architecture. It combines a robust Java desktop application front-end with a dynamic and interactive user interface powered by React.
 
 The core of the application is a Java Swing window that embeds a JavaFX WebView component. This WebView acts as a mini-browser, rendering a sophisticated calculator UI built as a standalone React web application. This hybrid approach allows for the creation of a native desktop experience with the power and flexibility of modern web development tools.
 
