@@ -1,8 +1,34 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Plus, Minus, Move, Download, Save, FolderOpen, Target, Sigma, Sun, Moon, Spline, GitCommit, ArrowUp, ArrowDown, UnfoldVertical, XCircle, ChevronUp, ChevronDown } from 'lucide-react';
+import { Plus, Minus, Move, Download, Save, FolderOpen, Target, Sigma, Sun, Moon, Spline, GitCommit, ArrowUp, ArrowDown, UnfoldVertical, XCircle, ChevronUp, ChevronDown, TrendingUp } from 'lucide-react';
 import * as mathjs from 'mathjs'; // Use the locally installed mathjs library
 
 // --- Numerical Analysis Helpers ---
+
+const calculateDerivative = (func, x, h = 1e-7) => {
+    const f_x = func(x);
+    if (!isFinite(f_x)) return { value: NaN, left: NaN, right: NaN };
+
+    const f_xh_plus = func(x + h);
+    const f_xh_minus = func(x - h);
+
+    if (!isFinite(f_xh_plus) || !isFinite(f_xh_minus)) {
+         return { value: NaN, left: NaN, right: NaN };
+    }
+
+    const rightDerivative = (f_xh_plus - f_x) / h;
+    const leftDerivative = (f_x - f_xh_minus) / h;
+
+    // Check for non-differentiability (e.g., sharp corners in abs(x))
+    if (Math.abs(rightDerivative - leftDerivative) > 1e-3) {
+        return { value: NaN, left: leftDerivative, right: rightDerivative };
+    }
+
+    // Use a more accurate central difference formula when differentiable
+    const centralDerivative = (f_xh_plus - f_xh_minus) / (2 * h);
+    return { value: centralDerivative, left: leftDerivative, right: rightDerivative };
+};
+
+
 const findRoot = (func, a, b, tolerance = 1e-7, maxIter = 100) => {
     let fa = func(a);
     let fb = func(b);
@@ -14,7 +40,7 @@ const findRoot = (func, a, b, tolerance = 1e-7, maxIter = 100) => {
         let fc = func(c);
         if (isNaN(fc)) return null;
         if (Math.abs(fc) < tolerance || (b - a) / 2 < tolerance) return c;
-        if (fa * fc < 0) { b = c; fb = fc; } 
+        if (fa * fc < 0) { b = c; fb = fc; }
         else { a = c; fa = fc; }
     }
     return c;
@@ -72,12 +98,10 @@ const Tooltip = ({ children, text }) => (
     </div>
 );
 
-// NEW: Custom Number Input with Steppers
 const NumberInputWithSteppers = ({ value, onChange, step = 1, label }) => {
     const handleStep = (direction) => {
         const numericValue = parseFloat(value) || 0;
         const newValue = direction === 'up' ? numericValue + step : numericValue - step;
-        // Use toFixed to handle floating point inaccuracies
         const precision = Math.max((step.toString().split('.')[1] || '').length, (value.toString().split('.')[1] || '').length);
         onChange(parseFloat(newValue.toFixed(precision)));
     };
@@ -86,15 +110,13 @@ const NumberInputWithSteppers = ({ value, onChange, step = 1, label }) => {
         <div className="relative w-full">
             {label && <label className="text-xs absolute -top-2 left-2 bg-gray-50 dark:bg-gray-800 px-1 text-gray-500">{label}</label>}
             <input
-                type="text" // Use text type to allow flexible decimal input
+                type="text"
                 value={value}
                 onChange={(e) => {
-                    // Allow only numbers, decimals, and a leading minus sign
                     const sanitizedValue = e.target.value.replace(/[^0-9.-]/g, '');
                     onChange(sanitizedValue);
                 }}
                 onBlur={(e) => {
-                    // On blur, parse the float to format it and handle empty/invalid cases
                     const parsed = parseFloat(e.target.value);
                     onChange(isNaN(parsed) ? 0 : parsed);
                 }}
@@ -133,7 +155,6 @@ const GraphCanvas = ({ equations, view, setView, settings, darkMode, math, analy
         ctx.fillStyle = bgColor;
         ctx.fillRect(0,0,width,height);
         
-        // --- Draw Grid ---
         if (settings.showGrid) {
             ctx.strokeStyle = gridColor;
             ctx.lineWidth = 0.5;
@@ -154,13 +175,11 @@ const GraphCanvas = ({ equations, view, setView, settings, darkMode, math, analy
             }
         }
         
-        // --- Draw Axes ---
         ctx.strokeStyle = axisColor;
         ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.moveTo(0, toScreenY(0)); ctx.lineTo(width, toScreenY(0)); ctx.stroke();
         ctx.beginPath(); ctx.moveTo(toScreenX(0), 0); ctx.lineTo(toScreenX(0), height); ctx.stroke();
 
-        // --- Draw Integral Shading ---
         if (analysis.mode === 'integral' && analysis.results.integral) {
             const eq = equations.find(e => e.id === analysis.params.integralId);
             if (eq) {
@@ -187,15 +206,42 @@ const GraphCanvas = ({ equations, view, setView, settings, darkMode, math, analy
                 ctx.strokeStyle = eq.color;
                 ctx.lineWidth = 2;
                 ctx.beginPath();
-                let firstPoint = true;
+
+                let lastY_world = NaN;
+
                 for (let px = 0; px <= width; px++) {
                     const x = toWorldX(px);
                     const y = code.evaluate({ x });
+
                     if (isFinite(y)) {
-                        const sy = toScreenY(y);
-                        if (firstPoint) { ctx.moveTo(px, sy); firstPoint = false; }
-                        else { ctx.lineTo(px, sy); }
-                    } else { firstPoint = true; }
+                        if (isNaN(lastY_world)) {
+                            ctx.moveTo(px, toScreenY(y));
+                        } else {
+                            const yChange = y - lastY_world;
+                            const crossedAsymptote = Math.sign(y) * Math.sign(lastY_world) === -1 && Math.abs(yChange) > (yMax - yMin) * 0.5;
+                            const isIntegerJump = Math.abs(yChange - Math.round(yChange)) < 1e-9 && Math.round(yChange) !== 0;
+
+                            if (crossedAsymptote && !isIntegerJump) {
+                                ctx.stroke();
+                                ctx.beginPath();
+                                ctx.moveTo(px, toScreenY(y));
+                            } else if (isIntegerJump) {
+                                ctx.lineTo(px, toScreenY(lastY_world));
+                                ctx.stroke();
+                                ctx.beginPath();
+                                ctx.moveTo(px, toScreenY(y));
+                            } else {
+                                ctx.lineTo(px, toScreenY(y));
+                            }
+                        }
+                        lastY_world = y;
+                    } else {
+                        if (!isNaN(lastY_world)) {
+                            ctx.stroke();
+                        }
+                        ctx.beginPath();
+                        lastY_world = NaN;
+                    }
                 }
                 ctx.stroke();
             } catch (e) {/* silent */}
@@ -215,6 +261,41 @@ const GraphCanvas = ({ equations, view, setView, settings, darkMode, math, analy
         results.extrema.max.forEach(p => drawExtremaPoint(p, '#16a34a'));
         results.extrema.min.forEach(p => drawExtremaPoint(p, '#dc2626'));
         results.extrema.inflection.forEach(p => drawExtremaPoint(p, '#f59e0b'));
+        
+        // --- Draw Derivative Point and Tangent Line ---
+        if (analysis.mode === 'derivative' && analysis.results.derivative) {
+            const { x, y, tangent } = analysis.results.derivative;
+            const sx = toScreenX(x);
+            const sy = toScreenY(y);
+
+            if(isFinite(sx) && isFinite(sy)){
+                ctx.fillStyle = '#f59e0b'; // Amber
+                ctx.beginPath();
+                ctx.arc(sx, sy, 6, 0, 2 * Math.PI);
+                ctx.fill();
+                ctx.strokeStyle = darkMode ? '#f9fafb' : '#11182c';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+            }
+
+            if (tangent) {
+                const { slope, x0, y0 } = tangent;
+                const tangentFunc = (tx) => slope * (tx - x0) + y0;
+
+                ctx.strokeStyle = '#f59e0b';
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([5, 5]);
+                ctx.beginPath();
+
+                const startY = tangentFunc(xMin);
+                const endY = tangentFunc(xMax);
+
+                ctx.moveTo(toScreenX(xMin), toScreenY(startY));
+                ctx.lineTo(toScreenX(xMax), toScreenY(endY));
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+        }
 
     }, [view, equations, settings, darkMode, math, analysis]);
 
@@ -387,10 +468,7 @@ const ControlsPanel = ({ equations, setEquations, view, setView, settings, setSe
     
     const handleExportSVG = () => {
         if (window.javaBridge) {
-            const tempCanvas = document.createElement('canvas');
             const { width, height } = document.querySelector('canvas') || {width: 800, height: 600};
-            tempCanvas.width = width;
-            tempCanvas.height = height;
 
             if (!math) {
                 alert("Math library not ready. Please wait a moment and try again.");
@@ -406,21 +484,35 @@ const ControlsPanel = ({ equations, setEquations, view, setView, settings, setSe
                 try {
                     const code = math.parse(eq.text).compile();
                     let d = '';
-                    let firstPoint = true;
+                    let lastY_world = NaN;
+
                     for (let px = 0; px <= width; px++) {
                         const x = (px / width) * (xMax - xMin) + xMin;
                         const y = code.evaluate({ x: x });
+
                         if (isFinite(y)) {
                             const sy = toScreenY(y);
-                            if (sy > -1e4 && sy < 1e4) {
-                                 if (firstPoint) {
+                            if (isNaN(lastY_world)) {
+                                d += `M ${px.toFixed(2)},${sy.toFixed(2)} `;
+                            } else {
+                                const yChange = y - lastY_world;
+                                const crossedAsymptote = Math.sign(y) * Math.sign(lastY_world) === -1 && Math.abs(yChange) > (yMax - yMin) * 0.5;
+                                const isIntegerJump = Math.abs(yChange - Math.round(yChange)) < 1e-9 && Math.round(yChange) !== 0;
+
+                                if (crossedAsymptote && !isIntegerJump) {
+                                     d += `M ${px.toFixed(2)},${sy.toFixed(2)} `;
+                                } else if (isIntegerJump) {
+                                    const lastSy = toScreenY(lastY_world);
+                                    d += `L ${px.toFixed(2)},${lastSy.toFixed(2)} `;
                                     d += `M ${px.toFixed(2)},${sy.toFixed(2)} `;
-                                    firstPoint = false;
                                 } else {
                                     d += `L ${px.toFixed(2)},${sy.toFixed(2)} `;
                                 }
-                            } else { firstPoint = true; }
-                        } else { firstPoint = true; }
+                            }
+                            lastY_world = y;
+                        } else {
+                            lastY_world = NaN;
+                        }
                     }
                     return `<path d="${d}" stroke="${eq.color}" stroke-width="2" fill="none" />`;
                 } catch (e) {
@@ -459,6 +551,7 @@ const ControlsPanel = ({ equations, setEquations, view, setView, settings, setSe
     const isIntegralActive = analysis.mode === 'integral';
     const isIntersectionActive = analysis.mode === 'intersections';
     const isExtremaActive = analysis.mode === 'extrema';
+    const isDerivativeActive = analysis.mode === 'derivative';
 
     return (
         <div className="w-full md:w-96 p-4 overflow-y-auto bg-gray-50/80 dark:bg-gray-900/80 backdrop-blur-sm h-full flex flex-col">
@@ -483,6 +576,23 @@ const ControlsPanel = ({ equations, setEquations, view, setView, settings, setSe
                 <div className="mb-4">
                     <h3 className="font-semibold mb-2 text-gray-700 dark:text-gray-300">Analysis Tools</h3>
                     <div className="p-3 rounded-lg bg-white/70 dark:bg-gray-800/70 shadow-sm space-y-4 backdrop-blur-sm">
+                        {/* Derivative at Point */}
+                        <div className={`p-2 rounded-lg transition ${isDerivativeActive ? 'bg-amber-100 dark:bg-amber-900/50' : ''}`}>
+                            <h4 className="font-semibold text-gray-800 dark:text-gray-200 mb-2 flex items-center"><TrendingUp size={16} className="mr-2 text-amber-500"/>Derivative at Point</h4>
+                            <select value={analysis.params.derivativeId || ''} onChange={e => setAnalysisParams({ ...analysis.params, derivativeId: Number(e.target.value)})} className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"><option disabled value="">Select an equation</option>{equations.map(eq => <option key={eq.id} value={eq.id}>y = {eq.text}</option>)}</select>
+                            <div className="flex items-center space-x-2 mt-2">
+                                <span className="text-sm">at x =</span>
+                                <NumberInputWithSteppers value={analysis.params.derivativeX} onChange={v => setAnalysisParams({...analysis.params, derivativeX: v})} step={0.1} />
+                            </div>
+                            <button onClick={() => runAnalysis('derivative')} disabled={!analysis.params.derivativeId} className={`mt-2 w-full py-2 px-4 rounded-lg text-white font-semibold transition disabled:bg-gray-400 flex justify-center items-center space-x-2 ${isDerivativeActive ? 'bg-red-500 hover:bg-red-600' : 'bg-amber-500 hover:bg-amber-600'}`}>{isDerivativeActive ? <XCircle size={18}/> : <TrendingUp size={18}/>}<span>{isDerivativeActive ? 'Clear' : 'Calculate'}</span></button>
+                            {isDerivativeActive && analysis.results.derivative && (
+                                <div className="mt-2 text-center font-mono p-2 bg-gray-200 dark:bg-gray-600 rounded">
+                                    {isNaN(analysis.results.derivative.value) ? "Not differentiable" : `f'(${analysis.results.derivative.x.toFixed(2)}) ≈ ${analysis.results.derivative.value.toFixed(4)}`}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Definite Integral */}
                         <div className={`p-2 rounded-lg transition ${isIntegralActive ? 'bg-green-100 dark:bg-green-900/50' : ''}`}>
                             <h4 className="font-semibold text-gray-800 dark:text-gray-200 mb-2 flex items-center"><Sigma size={16} className="mr-2 text-green-500"/>Definite Integral</h4>
                             <select value={analysis.params.integralId || ''} onChange={e => setAnalysisParams({ ...analysis.params, integralId: Number(e.target.value)})} className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"><option disabled value="">Select Eq for ∫f(x)dx</option>{equations.map(eq => <option key={eq.id} value={eq.id}>y = {eq.text}</option>)}</select>
@@ -495,12 +605,16 @@ const ControlsPanel = ({ equations, setEquations, view, setView, settings, setSe
                             <button onClick={() => runAnalysis('integral')} disabled={!analysis.params.integralId} className={`mt-2 w-full py-2 px-4 rounded-lg text-white font-semibold transition disabled:bg-gray-400 flex justify-center items-center space-x-2 ${isIntegralActive ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'}`}>{isIntegralActive ? <XCircle size={18}/> : <Sigma size={18}/>}<span>{isIntegralActive ? 'Clear' : 'Calculate'}</span></button>
                             {isIntegralActive && analysis.results.integral && <div className="mt-2 text-center font-mono p-2 bg-gray-200 dark:bg-gray-600 rounded">∫ ≈ {analysis.results.integral.toFixed(4)}</div>}
                         </div>
+
+                        {/* Intersections */}
                         <div className={`p-2 rounded-lg transition ${isIntersectionActive ? 'bg-pink-100 dark:bg-pink-900/50' : ''}`}>
                             <h4 className="font-semibold text-gray-800 dark:text-gray-200 mb-2 flex items-center"><GitCommit size={16} className="mr-2 text-pink-500"/>Intersections</h4>
                             <div className="space-y-2"><select value={analysis.params.eq1Id || ''} onChange={e => setAnalysisParams({...analysis.params, eq1Id: Number(e.target.value)})} className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"><option disabled value="">Select Eq 1</option>{equations.map(eq => <option key={eq.id} value={eq.id}>y = {eq.text}</option>)}</select><select value={analysis.params.eq2Id || ''} onChange={e => setAnalysisParams({...analysis.params, eq2Id: Number(e.target.value)})} className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"><option disabled value="">Select Eq 2</option>{equations.filter(eq => eq.id !== analysis.params.eq1Id).map(eq => <option key={eq.id} value={eq.id}>y = {eq.text}</option>)}</select></div>
                             <button onClick={() => runAnalysis('intersections')} disabled={!analysis.params.eq1Id || !analysis.params.eq2Id} className={`mt-2 w-full py-2 px-4 rounded-lg text-white font-semibold transition disabled:bg-gray-400 flex justify-center items-center space-x-2 ${isIntersectionActive ? 'bg-red-500 hover:bg-red-600' : 'bg-pink-500 hover:bg-pink-600'}`}>{isIntersectionActive ? <XCircle size={18}/> : <GitCommit size={18}/>}<span>{isIntersectionActive ? 'Clear' : 'Find'}</span></button>
                             {isIntersectionActive && <div className="mt-2">{renderResults(analysis.results.intersections)}</div>}
                         </div>
+
+                        {/* Extrema */}
                         <div className={`p-2 rounded-lg transition ${isExtremaActive ? 'bg-indigo-100 dark:bg-indigo-900/50' : ''}`}>
                             <h4 className="font-semibold text-gray-800 dark:text-gray-200 mb-2 flex items-center"><UnfoldVertical size={16} className="mr-2 text-indigo-500"/>Extrema</h4>
                             <select value={analysis.params.extremaId || ''} onChange={e => setAnalysisParams({...analysis.params, extremaId: Number(e.target.value)})} className="w-full p-2 rounded-md bg-gray-100 dark:bg-gray-700"><option disabled value="">Select an equation</option>{equations.map(eq => <option key={eq.id} value={eq.id}>y = {eq.text}</option>)}</select>
@@ -545,8 +659,8 @@ export default function App() {
     const [math, setMath] = useState(null);
     const [analysis, setAnalysis] = useState({
         mode: null,
-        params: { eq1Id: null, eq2Id: null, extremaId: null, integralId: null, a: -2, b: 2 },
-        results: { intersections: [], extrema: { min: [], max: [], inflection: [] }, integral: null }
+        params: { eq1Id: null, eq2Id: null, extremaId: null, integralId: null, a: -2, b: 2, derivativeId: null, derivativeX: 0 },
+        results: { intersections: [], extrema: { min: [], max: [], inflection: [] }, integral: null, derivative: null }
     });
 
     useEffect(() => {
@@ -565,19 +679,20 @@ export default function App() {
                     ...(mode === 'intersections' && { intersections: [] }),
                     ...(mode === 'extrema' && { extrema: { min: [], max: [], inflection: [] } }),
                     ...(mode === 'integral' && { integral: null }),
+                    ...(mode === 'derivative' && { derivative: null }),
                 }
             }));
             return;
         }
 
         const { params } = analysis;
-        let newResults = { intersections: [], extrema: { min: [], max: [], inflection: [] }, integral: null };
+        let newResults = { ...analysis.results };
 
         try {
             if (mode === 'integral') {
                 const eq = equations.find(e => e.id === params.integralId);
                 const result = calculateIntegral(x => math.evaluate(eq.text, {x}), params.a, params.b);
-                if (!isNaN(result)) newResults.integral = result;
+                newResults.integral = !isNaN(result) ? result : null;
             }
             if (mode === 'intersections') {
                 const eq1 = equations.find(e => e.id === params.eq1Id);
@@ -593,13 +708,33 @@ export default function App() {
                 
                 const criticalPointsX = scanForRoots(x => fPrime.evaluate({x}), view.xMin, view.xMax);
                 const inflectionPointsX = scanForRoots(x => fDoublePrime.evaluate({x}), view.xMin, view.xMax);
-
+                
+                newResults.extrema = { min: [], max: [], inflection: [] };
                 criticalPointsX.forEach(x => {
                     const d2y = fDoublePrime.evaluate({x});
                     if (d2y > 0) newResults.extrema.min.push({x, y: math.evaluate(eq.text, {x})});
                     else if (d2y < 0) newResults.extrema.max.push({x, y: math.evaluate(eq.text, {x})});
                 });
                 newResults.extrema.inflection = inflectionPointsX.map(x => ({x, y: math.evaluate(eq.text, {x})}));
+            }
+            if (mode === 'derivative') {
+                const eq = equations.find(e => e.id === params.derivativeId);
+                const x0 = params.derivativeX;
+                const y0 = math.evaluate(eq.text, {x: x0});
+
+                if (!isFinite(y0)) {
+                     newResults.derivative = { value: NaN, x: x0, y: y0, tangent: null };
+                } else {
+                    const compiledFunc = x => math.evaluate(eq.text, {x});
+                    const derivResult = calculateDerivative(compiledFunc, x0);
+
+                    newResults.derivative = {
+                        value: derivResult.value,
+                        x: x0,
+                        y: y0,
+                        tangent: !isNaN(derivResult.value) ? { slope: derivResult.value, x0, y0 } : null
+                    };
+                }
             }
         } catch (e) {
             console.error(`Analysis Error (${mode}):`, e);
